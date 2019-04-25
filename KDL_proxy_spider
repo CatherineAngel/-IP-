@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Time    : 2019/4/25 0025 13:36
+# @Author  : Willpower-chen
+# @Site    : 
+# @File    : 快代理抓取.py
+# @Software: PyCharm
+
+import requests
+from lxml import etree
+import pymongo
+
+#存储代理ip
+class save():
+    def __init__(self):
+        self.client = pymongo.MongoClient('localhost', 27017)
+        self.mydb = self.client["proxy"]
+        self.mycol = self.mydb["KDL_proxy"]
+    def save(self,proxy_dict):
+        x = self.mycol.update_one({"biaoshi":proxy_dict['proxy']},{'$set':proxy_dict},True)
+        #采用update存储方式,biaoshi含义为:如果表示存在,则不执行后面插入语句,防止数据重复
+        print(x,"存储成功")
+def proxy_check(proxy):
+
+    try:
+        res = requests.get('http://www.baidu.com',proxies=proxy,timeout=8)
+        if res.status_code == 200:
+            return True
+        else:
+            return False
+    except:
+        return False
+
+
+#爬去代理ip
+def KDL_spider(url):
+    res = requests.get(url).text
+    html = etree.HTML(res)
+
+    #ip地址
+    IP = html.xpath("//*[@id='list']/table/tbody/tr/td[1]/text()")
+    #端口号
+    PORT = html.xpath("//*[@id='list']/table/tbody/tr/td[2]/text()")
+    #匿名度
+    anonymous = html.xpath("//*[@id='list']/table/tbody/tr/td[3]/text()")
+    #类型
+    TYPE = html.xpath("//*[@id='list']/table/tbody/tr/td[4]/text()")
+    #位置
+    LOCATION = html.xpath("//*[@id='list']/table/tbody/tr/td[5]/text()")
+    #响应速度
+    Response_Speed = html.xpath("//*[@id='list']/table/tbody/tr/td[6]/text()")
+    #最后验证时间
+    Last_Time = html.xpath("//*[@id='list']/table/tbody/tr/td[7]/text()")
+    #获取pymonogo实例化
+    mg = save()
+
+    #爬取快代理筛选并进行存储
+    for index in range(15):
+        proxyIP = {"http":"http://"+IP[index]+":"+PORT[index]}
+        if proxy_check(proxyIP): #检查IP可用性
+            print(proxyIP, "IP代理有效!进行存储中")
+
+            proxyInfo={}
+            proxyInfo['proxy'] = proxyIP
+            proxyInfo['匿名度'] = anonymous[index]
+            proxyInfo['类型'] = TYPE[index]
+            proxyInfo['位置'] = LOCATION[index]
+            proxyInfo['响应速度'] = Response_Speed[index]
+            proxyInfo['最后验证时间'] = Last_Time[index]
+            proxyInfo['生存次数'] = 100
+            #生存次数是当代理存入数据库后,如果在下次的请求中,代理失效,则生存次数减一,如果为0,则删除该代理,如果重新赋值100
+            mg.save(proxyInfo)
+        else:
+            print(proxyIP, "IP代理无效!")
+       # print(proxy)
+from multiprocessing import Pool
+
+if __name__=="__main__":
+    base_url = 'https://www.kuaidaili.com/free/intr/'
+    p = Pool(10)
+    for i in range(1,2000):
+        print("已添加第{}url进入多进程".format(i))
+        p.apply_async(KDL_spider,args=(base_url+str(i),))
+    print("等待所有进程添加完毕")
+    p.close()
+    p.join()
+
+
